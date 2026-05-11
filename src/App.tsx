@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { RpgProvider, useAuth } from './lib/rpg';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
 import LoginView from './views/LoginView';
@@ -8,8 +9,89 @@ import HomeView from './views/HomeView';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
+function BrandedLoadingScreen({ reduceMotion }: { reduceMotion: boolean }): JSX.Element {
+  return (
+    <div
+      className="flex min-h-dvh flex-col items-center justify-center bg-surface px-6"
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+    >
+      <div className="flex flex-col items-center gap-8">
+        <div className="relative flex h-[5.5rem] w-[5.5rem] items-center justify-center">
+          {!reduceMotion ? (
+            <>
+              <motion.span
+                className="absolute inset-0 rounded-full border border-accent/40"
+                aria-hidden
+                animate={{ scale: [1, 1.35], opacity: [0.45, 0] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
+              />
+              <motion.span
+                className="absolute inset-0 rounded-full border border-accent/25"
+                aria-hidden
+                animate={{ scale: [1, 1.35], opacity: [0.35, 0] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeOut', delay: 0.75 }}
+              />
+            </>
+          ) : null}
+          {reduceMotion ? (
+            <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-full border-2 border-accent/80 bg-surface-high shadow-[0_0_32px_rgba(62,232,181,0.12)]">
+              <span className="font-display text-xl font-extrabold text-accent">W</span>
+            </div>
+          ) : (
+            <motion.div
+              className="relative z-10 flex h-16 w-16 items-center justify-center rounded-full border-2 border-accent/80 bg-surface-high shadow-[0_0_32px_rgba(62,232,181,0.12)]"
+              animate={{ scale: [1, 1.035, 1] }}
+              transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <motion.span
+                className="font-display text-xl font-extrabold text-accent"
+                animate={{ opacity: [0.82, 1, 0.82] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                W
+              </motion.span>
+            </motion.div>
+          )}
+        </div>
+        <div className="text-center">
+          <p className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+            We Moved
+          </p>
+          <p className="mt-3 text-sm text-muted">Loading your crew…</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScreenCard({
+  eyebrow = 'We Moved',
+  title,
+  children,
+}: {
+  eyebrow?: string;
+  title: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div className="flex min-h-dvh flex-col justify-center px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(3.5rem,env(safe-area-inset-top))]">
+      <div className="mx-auto w-full max-w-sm rounded-2xl border border-white/10 bg-surface-high/80 p-6 shadow-xl backdrop-blur-sm">
+        <p className="font-display text-xs font-semibold uppercase tracking-[0.2em] text-accent">
+          {eyebrow}
+        </p>
+        <h1 className="mt-3 font-display text-2xl font-extrabold leading-tight text-ink">{title}</h1>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function Shell(): JSX.Element {
   const { user, loading, signOut } = useAuth();
+  const prefersReducedMotion = useReducedMotion();
+  const reduceMotion = prefersReducedMotion === true;
   const [crewId, setCrewId] = useState<string | null>(null);
   const [gateLoading, setGateLoading] = useState(true);
   const [gateError, setGateError] = useState<string | null>(null);
@@ -58,31 +140,23 @@ function Shell(): JSX.Element {
   }, [refreshMembership]);
 
   if (loading || gateLoading) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <div
-          className="h-10 w-10 animate-spin rounded-full border-2 border-accent border-t-transparent"
-          aria-label="Loading"
-        />
-      </div>
-    );
+    return <BrandedLoadingScreen reduceMotion={reduceMotion} />;
   }
 
   if (!user) return <LoginView />;
 
   if (gateError) {
     return (
-      <div className="flex min-h-dvh flex-col justify-center gap-4 px-6">
-        <h1 className="font-display text-xl font-bold text-ink">Could not load crew</h1>
+      <ScreenCard title="Could not load crew">
         <p className="text-sm leading-relaxed text-muted">{gateError}</p>
         <button
           type="button"
           onClick={() => void refreshMembership()}
-          className="rounded-xl bg-accent px-4 py-3 font-display font-semibold text-surface"
+          className="mt-6 w-full rounded-xl bg-accent px-4 py-3 font-display font-semibold text-surface transition-colors hover:bg-accent/90 active:bg-accent/85"
         >
           Retry
         </button>
-      </div>
+      </ScreenCard>
     );
   }
 
@@ -104,14 +178,19 @@ function Shell(): JSX.Element {
 export default function App(): JSX.Element {
   if (!hasSupabaseConfig()) {
     return (
-      <div className="flex min-h-dvh flex-col justify-center px-6">
-        <h1 className="font-display text-xl font-bold text-ink">Configuration needed</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted">
-          Set <code className="rounded bg-track px-1 py-0.5 text-accent">VITE_SUPABASE_URL</code> and{' '}
-          <code className="rounded bg-track px-1 py-0.5 text-accent">VITE_SUPABASE_ANON_KEY</code> for
-          this app, then rebuild.
+      <ScreenCard title="Configuration needed">
+        <p className="text-sm leading-relaxed text-muted">
+          Set{' '}
+          <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
+            VITE_SUPABASE_URL
+          </code>{' '}
+          and{' '}
+          <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
+            VITE_SUPABASE_ANON_KEY
+          </code>{' '}
+          for this app, then rebuild.
         </p>
-      </div>
+      </ScreenCard>
     );
   }
 
