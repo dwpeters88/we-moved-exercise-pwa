@@ -1,0 +1,15 @@
+[build]
+  command = "npm ci && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Environment: VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY (see `.env.example`).
+# Or run `npm run sync-env:netlify` from a machine with Netlify CLI linked.
+# Registration UX expects Supabase “Confirm email” OFF when you want instant sign-in.
