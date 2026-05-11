@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
-  Bike,
   CalendarDays,
-  Dumbbell,
   Flame,
   LogOut,
   Settings,
-  User,
-  type LucideIcon,
+  Trophy,
 } from 'lucide-react';
 import { LayoutGroup, MotionConfig, motion } from 'framer-motion';
 import { useRpgEnv } from '../lib/rpg';
 import { useToast } from '../lib/toast';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import SettingsSheet from '../components/SettingsSheet';
+import MemberAvatar from '../components/MemberAvatar';
 import { formatShortDate, localDayKey } from '../lib/date';
+import { streakStatsForMembers } from '../lib/streaks';
 import type { BuddyCompletion, BuddyMember } from '../lib/types';
 
 type Props = {
@@ -51,7 +50,9 @@ const glassCard =
 const heroGlowChecked =
   'border-accent/50 bg-accent/20 shadow-[0_0_28px_rgba(62,232,181,0.18),0_24px_48px_-28px_rgba(15,20,26,0.85)]';
 
-const listIcons: LucideIcon[] = [Activity, Flame, Dumbbell, Bike];
+/** Enough rows for ~2 people × ~400 days of daily logs for streak stats. */
+const FETCH_COMPLETION_LIMIT = 800;
+const RECENT_ACTIVITY_DISPLAY_LIMIT = 50;
 
 export default function HomeView({ crewId, userId, appVersion, onSignOut }: Props): JSX.Element {
   const { supabase } = useRpgEnv();
@@ -81,6 +82,17 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
     return m;
   }, [members]);
 
+  const avatarByUser = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const row of members) m.set(row.user_id, row.avatar_url);
+    return m;
+  }, [members]);
+
+  const myMember = useMemo(
+    () => members.find((u) => u.user_id === userId),
+    [members, userId],
+  );
+
   const partner = useMemo(() => members.find((u) => u.user_id !== userId), [members, userId]);
 
   const soloInCrew = partner === undefined && members.length === 1;
@@ -107,18 +119,41 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
     });
   }, [completions, partner, todayKey]);
 
+  const membersScoreboardOrder = useMemo(() => {
+    return [...members].sort((a, b) => {
+      if (a.user_id === userId) return -1;
+      if (b.user_id === userId) return 1;
+      return a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' });
+    });
+  }, [members, userId]);
+
+  const streakByUser = useMemo(
+    () =>
+      streakStatsForMembers(
+        completions,
+        members.map((m) => m.user_id),
+        todayKey,
+      ),
+    [completions, members, todayKey],
+  );
+
+  const recentActivityRows = useMemo(
+    () => completions.slice(0, RECENT_ACTIVITY_DISPLAY_LIMIT),
+    [completions],
+  );
+
   const reload = useCallback(async () => {
     setLoadError(null);
     const day = localDayKey();
     try {
       const [memRes, compRes] = await Promise.all([
-        supabase.from('exercise_buddy_member').select('crew_id, user_id, display_name').eq('crew_id', crewId),
+        supabase.from('exercise_buddy_member').select('crew_id, user_id, display_name, avatar_url').eq('crew_id', crewId),
         supabase
           .from('exercise_buddy_completion')
           .select('id, crew_id, user_id, completed_at, workout_day')
           .eq('crew_id', crewId)
           .order('completed_at', { ascending: false })
-          .limit(48),
+          .limit(FETCH_COMPLETION_LIMIT),
       ]);
       if (!mountedRef.current) return;
       const qErr = memRes.error ?? compRes.error;
@@ -152,6 +187,16 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
           event: '*',
           schema: 'public',
           table: 'exercise_buddy_completion',
+          filter: `crew_id=eq.${crewId}`,
+        },
+        () => void reload(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'exercise_buddy_member',
           filter: `crew_id=eq.${crewId}`,
         },
         () => void reload(),
@@ -395,9 +440,12 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
             <h3 className="px-0.5 font-display text-lg font-bold text-ink">Partner Status</h3>
             <div className={`${glassCard} flex items-center justify-between gap-4 p-4`}>
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#30353c] text-partner ring-1 ring-white/10">
-                  <User className="h-6 w-6" aria-hidden />
-                </div>
+                <MemberAvatar
+                  url={partner?.avatar_url}
+                  label={partner?.display_name ?? 'Partner'}
+                  size="lg"
+                  variant="partner"
+                />
                 <p className="truncate font-display text-base font-semibold text-partner">
                   {partner?.display_name ?? (soloInCrew ? 'Invite them' : 'Partner')}
                 </p>
@@ -428,8 +476,108 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
             </div>
           </motion.section>
 
+          <motion.section
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...springLayout, delay: 0.07 }}
+            className="flex flex-col gap-2"
+          >
+            <h3 className="px-0.5 font-display text-lg font-bold text-ink">Streak scoreboard</h3>
+            <div className={`${glassCard} overflow-hidden p-0`}>
+              {loading ? (
+                <p className="px-4 py-8 text-center text-sm text-[#bccac1]">Loading…</p>
+              ) : members.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-[#bccac1]">No crew members yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[280px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-[#bccac1]">
+                        <th scope="col" className="px-4 py-3 font-semibold">
+                          Name
+                        </th>
+                        <th scope="col" className="px-2 py-3 text-center font-semibold">
+                          <span className="inline-flex items-center justify-center gap-1" title="Current streak">
+                            <Flame className="h-3.5 w-3.5 text-accent" aria-hidden />
+                            <span className="sr-only">Current streak</span>
+                          </span>
+                        </th>
+                        <th scope="col" className="px-2 py-3 text-center font-semibold">
+                          <span className="inline-flex items-center justify-center gap-1" title="Longest streak">
+                            <Trophy className="h-3.5 w-3.5 text-amber-300/90" aria-hidden />
+                            <span className="sr-only">Longest streak</span>
+                          </span>
+                        </th>
+                        <th scope="col" className="px-4 py-3 text-right font-semibold tabular-nums">
+                          Total
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {membersScoreboardOrder.map((m) => {
+                        const s = streakByUser.get(m.user_id);
+                        const isYou = m.user_id === userId;
+                        return (
+                          <tr
+                            key={m.user_id}
+                            className={isYou ? 'bg-accent/[0.06]' : undefined}
+                          >
+                            <th
+                              scope="row"
+                              className={`px-4 py-3 font-display font-semibold ${
+                                isYou ? 'text-accent' : 'text-ink'
+                              }`}
+                            >
+                              <div className="flex max-w-[14rem] items-center gap-2.5">
+                                <MemberAvatar
+                                  url={m.avatar_url}
+                                  label={m.display_name}
+                                  size="sm"
+                                  variant={isYou ? 'accent' : 'default'}
+                                />
+                                <span className="min-w-0 truncate">
+                                  {m.display_name}
+                                  {isYou ? (
+                                    <span className="ml-1.5 text-[0.65rem] font-normal uppercase tracking-wider text-[#bccac1]">
+                                      You
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </div>
+                            </th>
+                            <td className="px-2 py-3 text-center tabular-nums text-ink">
+                              {s?.currentStreak ?? 0}
+                            </td>
+                            <td className="px-2 py-3 text-center tabular-nums text-[#bccac1]">
+                              {s?.longestStreak ?? 0}
+                            </td>
+                            <td className="px-4 py-3 text-right tabular-nums text-[#bccac1]">
+                              {s?.totalDaysLogged ?? 0}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <p className="px-0.5 text-xs leading-relaxed text-[#8c9890]">
+              Streaks count consecutive calendar days on this device’s timezone. Longest streak may be capped if
+              history exceeds loaded rows ({FETCH_COMPLETION_LIMIT} latest check-ins).
+            </p>
+          </motion.section>
+
           <section className="flex flex-col gap-2">
-            <h3 className="px-0.5 font-display text-lg font-bold text-ink">Recent Activity</h3>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0.5">
+              <h3 className="font-display text-lg font-bold text-ink">Recent Activity</h3>
+              {!loading && completions.length > RECENT_ACTIVITY_DISPLAY_LIMIT ? (
+                <p className="text-xs text-[#8c9890]">
+                  Showing latest {RECENT_ACTIVITY_DISPLAY_LIMIT} of {completions.length} loaded
+                </p>
+              ) : null}
+            </div>
             <motion.ul
               className={`${glassCard} flex flex-col overflow-hidden divide-y divide-white/5`}
               variants={listContainer}
@@ -451,12 +599,12 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
                   No entries yet — be the first to check in.
                 </motion.li>
               ) : (
-                completions.map((c, i) => {
-                  const RowIcon = listIcons[i % listIcons.length] ?? Activity;
+                recentActivityRows.map((c) => {
                   const timeOnly = new Date(c.completed_at).toLocaleTimeString(undefined, {
                     hour: 'numeric',
                     minute: '2-digit',
                   });
+                  const who = nameByUser.get(c.user_id) ?? 'Someone';
                   return (
                     <motion.li
                       key={c.id}
@@ -466,13 +614,14 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
                       className="flex items-center justify-between gap-3 px-4 py-4 transition-colors hover:bg-white/[0.04] active:bg-white/[0.07]"
                     >
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent ring-1 ring-accent/20">
-                          <RowIcon className="h-5 w-5" aria-hidden />
-                        </div>
+                        <MemberAvatar
+                          url={avatarByUser.get(c.user_id)}
+                          label={who}
+                          size="md"
+                          variant={c.user_id === userId ? 'accent' : 'default'}
+                        />
                         <div className="min-w-0">
-                          <p className="truncate font-display text-sm font-semibold text-ink">
-                            {nameByUser.get(c.user_id) ?? 'Someone'}
-                          </p>
+                          <p className="truncate font-display text-sm font-semibold text-ink">{who}</p>
                           <p className="mt-0.5 text-xs text-[#bccac1]">{formatShortDate(c.workout_day)}</p>
                         </div>
                       </div>
@@ -495,6 +644,11 @@ export default function HomeView({ crewId, userId, appVersion, onSignOut }: Prop
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           appVersion={appVersion}
+          supabase={supabase}
+          userId={userId}
+          myDisplayName={myMember?.display_name ?? 'You'}
+          myAvatarUrl={myMember?.avatar_url ?? null}
+          onAvatarUpdated={() => void reload()}
           onSignOut={() => {
             setSettingsOpen(false);
             onSignOut();

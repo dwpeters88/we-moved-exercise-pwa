@@ -1,11 +1,25 @@
-import { useCallback, useEffect, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { Camera, Trash2 } from 'lucide-react';
+import {
+  AVATAR_BUCKET,
+  parseAvatarStoragePathFromPublicUrl,
+  uploadBuddyAvatar,
+} from '../lib/avatarUpload';
+import { useToast } from '../lib/toast';
+import MemberAvatar from './MemberAvatar';
 
 export type SettingsSheetProps = {
   open: boolean;
   onClose: () => void;
   appVersion: string;
   onSignOut: () => void;
+  supabase: SupabaseClient;
+  userId: string;
+  myDisplayName: string;
+  myAvatarUrl: string | null;
+  onAvatarUpdated: () => void;
 };
 
 const glassSheet =
@@ -41,15 +55,97 @@ export default function SettingsSheet({
   onClose,
   appVersion,
   onSignOut,
+  supabase,
+  userId,
+  myDisplayName,
+  myAvatarUrl,
+  onAvatarUpdated,
 }: SettingsSheetProps): JSX.Element | null {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const lastFocusRef = useRef<HTMLElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { pushToast } = useToast();
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   const handleSignOut = useCallback(() => {
     onSignOut();
     onClose();
   }, [onClose, onSignOut]);
+
+  const removeOldStorageObject = useCallback(
+    async (publicUrl: string | null) => {
+      if (!publicUrl) return;
+      const path = parseAvatarStoragePathFromPublicUrl(publicUrl);
+      if (!path) return;
+      await supabase.storage.from(AVATAR_BUCKET).remove([path]);
+    },
+    [supabase],
+  );
+
+  const applyAvatarUrl = useCallback(
+    async (nextUrl: string | null, previousUrl: string | null) => {
+      const { error } = await supabase.rpc('exercise_buddy_set_avatar_url', {
+        p_url: nextUrl,
+      });
+      if (error) {
+        const msg =
+          error.message?.includes('invalid_avatar_url')
+            ? 'That image URL is not allowed.'
+            : error.message || 'Could not save profile photo.';
+        pushToast({ variant: 'error', message: msg });
+        return false;
+      }
+      void removeOldStorageObject(previousUrl);
+      onAvatarUpdated();
+      pushToast({
+        variant: 'success',
+        message: nextUrl ? 'Profile photo updated.' : 'Profile photo removed.',
+      });
+      return true;
+    },
+    [onAvatarUpdated, pushToast, removeOldStorageObject, supabase],
+  );
+
+  const onPickAvatar = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const onAvatarFile = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file || avatarBusy) return;
+      if (!file.type.startsWith('image/')) {
+        pushToast({ variant: 'error', message: 'Choose an image file.' });
+        return;
+      }
+      setAvatarBusy(true);
+      try {
+        const prev = myAvatarUrl;
+        const up = await uploadBuddyAvatar(supabase, userId, file);
+        if ('error' in up) {
+          pushToast({ variant: 'error', message: up.error });
+          return;
+        }
+        await applyAvatarUrl(up.publicUrl, prev);
+      } finally {
+        setAvatarBusy(false);
+      }
+    },
+    [applyAvatarUrl, avatarBusy, myAvatarUrl, pushToast, supabase, userId],
+  );
+
+  const onRemoveAvatar = useCallback(async () => {
+    if (avatarBusy || !myAvatarUrl) return;
+    setAvatarBusy(true);
+    try {
+      const prev = myAvatarUrl;
+      await applyAvatarUrl(null, prev);
+    } finally {
+      setAvatarBusy(false);
+    }
+  }, [applyAvatarUrl, avatarBusy, myAvatarUrl]);
 
   useEffect(() => {
     if (!open) return;
@@ -149,6 +245,51 @@ export default function SettingsSheet({
                 <li>Pull down to refresh crew activity and check-ins.</li>
                 <li>Install the app from your browser menu for a full-screen experience.</li>
               </ul>
+            </div>
+
+            <div className="border-t border-white/10 pt-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Profile photo</p>
+              <p className="mt-1 text-sm leading-relaxed text-[#bccac1]">
+                Shown to your crew on the home screen. Images are resized on-device before upload.
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={(ev) => void onAvatarFile(ev)}
+              />
+              <div className="mt-4 flex flex-wrap items-center gap-4">
+                <MemberAvatar
+                  url={myAvatarUrl}
+                  label={myDisplayName}
+                  size="lg"
+                  variant="accent"
+                />
+                <div className="flex min-w-0 flex-1 flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    onClick={onPickAvatar}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent/15 px-4 py-2.5 font-display text-sm font-semibold text-accent ring-1 ring-accent/35 transition-colors hover:bg-accent/25 disabled:opacity-50"
+                  >
+                    <Camera className="h-4 w-4 shrink-0" aria-hidden />
+                    {avatarBusy ? 'Working…' : 'Upload photo'}
+                  </button>
+                  {myAvatarUrl ? (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={() => void onRemoveAvatar()}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2 text-sm font-medium text-[#bccac1] transition-colors hover:bg-white/5 hover:text-ink disabled:opacity-50"
+                    >
+                      <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
+                      Remove photo
+                    </button>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             <div className="mt-auto border-t border-white/10 pt-4">

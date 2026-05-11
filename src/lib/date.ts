@@ -6,6 +6,26 @@ export function localDayKey(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Move a local calendar day key by `delta` days (same timezone rules as `localDayKey`). */
+export function addLocalDays(isoDay: string, delta: number): string {
+  const parts = isoDay.split('-').map(Number);
+  const y = parts[0];
+  const mo = parts[1];
+  const d = parts[2];
+  if (
+    y === undefined ||
+    mo === undefined ||
+    d === undefined ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(mo) ||
+    !Number.isFinite(d)
+  ) {
+    return isoDay;
+  }
+  const dt = new Date(y, mo - 1, d + delta);
+  return localDayKey(dt);
+}
+
 export function formatShortDate(isoDay: string): string {
   const parts = isoDay.split('-').map(Number);
   if (parts.length !== 3) return isoDay;

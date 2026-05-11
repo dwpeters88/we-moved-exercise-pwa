@@ -11,7 +11,20 @@ npm ci
 npm run dev
 ```
 
-Database migrations live in `supabase/migrations/` (apply with Supabase CLI or Dashboard SQL).
+Database migrations live in `supabase/migrations/`.
+
+This app is often pointed at the **same Supabase project** as `rpg-platform`, which already has its own migration history. In that case `supabase db push` from this repo will **not** apply our SQL chain end-to-end. Instead:
+
+1. `npx supabase link --project-ref <ref>` once from this repo (needs `SUPABASE_ACCESS_TOKEN`).
+2. Apply a specific file against the linked DB:
+
+   ```bash
+   npm run db:query:linked -- supabase/migrations/20260511130000_exercise_buddy_avatars.sql
+   ```
+
+   The script loads `SUPABASE_ACCESS_TOKEN` from `./.env` or `../rpg-platform/.env`.
+
+Alternatively run the same SQL in the Supabase Dashboard SQL editor.
 
 ## Netlify
 

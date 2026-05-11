@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "preview": "vite preview",
     "sync-env:netlify": "node scripts/sync-netlify-env.mjs",
-    "deploy:netlify": "npm run build && netlify deploy --prod --dir=dist --site=8fa966ce-44ef-44d8-853d-479c7a62099f"
+    "deploy:netlify": "npm run build && netlify deploy --prod --dir=dist --site=8fa966ce-44ef-44d8-853d-479c7a62099f",
+    "db:query:linked": "node scripts/run-linked-sql.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.1",
