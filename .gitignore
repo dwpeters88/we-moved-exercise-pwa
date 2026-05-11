@@ -6,3 +6,6 @@ dist
 .DS_Store
 .netlify
 .turbo
+
+# Stitch MCP artifacts (local only)
+.stitch/

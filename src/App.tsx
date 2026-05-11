@@ -1,13 +1,28 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { RpgProvider, useAuth } from './lib/rpg';
 import { hasSupabaseConfig, supabase } from './lib/supabase';
-import LoginView from './views/LoginView';
-import JoinCrewView from './views/JoinCrewView';
-import HomeView from './views/HomeView';
+import { ToastProvider } from './lib/toast';
+import { ToastViewport } from './components/ToastViewport';
+import SkipLink from './components/SkipLink';
+import { OfflineNotice } from './components/OfflineNotice';
+import InstallAppBanner from './components/InstallAppBanner';
+
+const LoginView = lazy(async () => import('./views/LoginView'));
+const JoinCrewView = lazy(async () => import('./views/JoinCrewView'));
+const HomeView = lazy(async () => import('./views/HomeView'));
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+const appVersion = import.meta.env.VITE_APP_VERSION ?? '0.0.0';
 
 function BrandedLoadingScreen({ reduceMotion }: { reduceMotion: boolean }): JSX.Element {
   return (
@@ -88,6 +103,19 @@ function ScreenCard({
   );
 }
 
+function MainLandmark({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <main id="main-content" tabIndex={-1} className="min-h-dvh outline-none">
+      {children}
+    </main>
+  );
+}
+
+function RouteFallback(): JSX.Element {
+  const prefersReducedMotion = useReducedMotion();
+  return <BrandedLoadingScreen reduceMotion={prefersReducedMotion === true} />;
+}
+
 function Shell(): JSX.Element {
   const { user, loading, signOut } = useAuth();
   const prefersReducedMotion = useReducedMotion();
@@ -140,68 +168,103 @@ function Shell(): JSX.Element {
   }, [refreshMembership]);
 
   if (loading || gateLoading) {
-    return <BrandedLoadingScreen reduceMotion={reduceMotion} />;
+    return (
+      <MainLandmark>
+        <BrandedLoadingScreen reduceMotion={reduceMotion} />
+      </MainLandmark>
+    );
   }
 
-  if (!user) return <LoginView />;
+  if (!user) {
+    return (
+      <MainLandmark>
+        <LoginView />
+      </MainLandmark>
+    );
+  }
 
   if (gateError) {
     return (
-      <ScreenCard title="Could not load crew">
-        <p className="text-sm leading-relaxed text-muted">{gateError}</p>
-        <button
-          type="button"
-          onClick={() => void refreshMembership()}
-          className="mt-6 w-full rounded-xl bg-accent px-4 py-3 font-display font-semibold text-surface transition-colors hover:bg-accent/90 active:bg-accent/85"
-        >
-          Retry
-        </button>
-      </ScreenCard>
+      <MainLandmark>
+        <ScreenCard title="Could not load crew">
+          <p className="text-sm leading-relaxed text-muted">{gateError}</p>
+          <button
+            type="button"
+            onClick={() => void refreshMembership()}
+            className="mt-6 w-full rounded-xl bg-accent px-4 py-3 font-display font-semibold text-surface transition-colors hover:bg-accent/90 active:bg-accent/85"
+          >
+            Retry
+          </button>
+        </ScreenCard>
+      </MainLandmark>
     );
   }
 
   if (!crewId) {
     return (
-      <JoinCrewView
-        onJoined={async () => {
-          await refreshMembership();
-        }}
-      />
+      <MainLandmark>
+        <JoinCrewView
+          onJoined={async () => {
+            await refreshMembership();
+          }}
+        />
+      </MainLandmark>
     );
   }
 
   return (
-    <HomeView crewId={crewId} userId={user.id} onSignOut={() => void signOut()} />
+    <MainLandmark>
+      <HomeView
+        crewId={crewId}
+        userId={user.id}
+        appVersion={appVersion}
+        onSignOut={() => void signOut()}
+      />
+    </MainLandmark>
   );
 }
 
 export default function App(): JSX.Element {
   if (!hasSupabaseConfig()) {
     return (
-      <ScreenCard title="Configuration needed">
-        <p className="text-sm leading-relaxed text-muted">
-          Set{' '}
-          <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
-            VITE_SUPABASE_URL
-          </code>{' '}
-          and{' '}
-          <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
-            VITE_SUPABASE_ANON_KEY
-          </code>{' '}
-          for this app, then rebuild.
-        </p>
-      </ScreenCard>
+      <ToastProvider>
+        <SkipLink />
+        <MainLandmark>
+          <ScreenCard title="Configuration needed">
+            <p className="text-sm leading-relaxed text-muted">
+              Set{' '}
+              <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
+                VITE_SUPABASE_URL
+              </code>{' '}
+              and{' '}
+              <code className="rounded bg-track px-1.5 py-0.5 font-mono text-[0.8125rem] text-accent">
+                VITE_SUPABASE_ANON_KEY
+              </code>{' '}
+              for this app, then rebuild.
+            </p>
+          </ScreenCard>
+        </MainLandmark>
+        <ToastViewport />
+      </ToastProvider>
     );
   }
 
   return (
-    <RpgProvider
-      supabase={supabase}
-      supabaseUrl={supabaseUrl}
-      supabaseAnonKey={supabaseAnonKey}
-      appId="exercise-pwa"
-    >
-      <Shell />
-    </RpgProvider>
+    <ToastProvider>
+      <SkipLink />
+      <OfflineNotice />
+      <InstallAppBanner />
+      <RpgProvider
+        supabase={supabase}
+        supabaseUrl={supabaseUrl}
+        supabaseAnonKey={supabaseAnonKey}
+        appId="exercise-pwa"
+      >
+        <Suspense fallback={<RouteFallback />}>
+          <Shell />
+        </Suspense>
+      </RpgProvider>
+      <ToastViewport />
+    </ToastProvider>
   );
 }

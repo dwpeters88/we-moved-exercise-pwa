@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Users } from 'lucide-react';
 import { useRpgEnv } from '../lib/rpg';
+import { useToast } from '../lib/toast';
 
 const NAMES = ['Delmaine', 'Hannah'] as const;
 
@@ -18,6 +19,7 @@ function mapJoinRpcError(message: string): string {
 
 export default function JoinCrewView({ onJoined }: Props): JSX.Element {
   const { supabase } = useRpgEnv();
+  const { pushToast } = useToast();
   const [code, setCode] = useState('');
   const [name, setName] = useState<(typeof NAMES)[number]>('Delmaine');
   const [busy, setBusy] = useState(false);
@@ -34,9 +36,12 @@ export default function JoinCrewView({ onJoined }: Props): JSX.Element {
         p_display_name: name,
       });
       if (rpcError) {
-        setError(mapJoinRpcError(rpcError.message ?? ''));
+        const msg = mapJoinRpcError(rpcError.message ?? '');
+        setError(msg);
+        pushToast({ variant: 'error', message: msg });
         return;
       }
+      pushToast({ variant: 'success', message: 'Joined your crew — welcome!' });
       await onJoined();
     } finally {
       setBusy(false);
@@ -64,144 +69,165 @@ export default function JoinCrewView({ onJoined }: Props): JSX.Element {
       };
 
   return (
-    <div className="relative flex min-h-dvh flex-col overflow-x-hidden px-5 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-12">
+    <div className="relative flex min-h-dvh flex-col overflow-x-hidden bg-surface text-ink">
       <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(62,232,181,0.12),transparent_55%),radial-gradient(ellipse_80%_50%_at_100%_100%,rgba(31,107,85,0.18),transparent_45%)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,rgba(62,232,181,0.1),transparent_55%),radial-gradient(ellipse_80%_50%_at_100%_100%,rgba(31,107,85,0.14),transparent_45%)]"
         aria-hidden
       />
 
-      <motion.header
-        className="relative z-10 mb-8 rounded-2xl border border-white/10 bg-surface-high/90 p-6 shadow-[0_1px_0_rgba(255,255,255,0.06)_inset,0_20px_50px_-24px_rgba(0,0,0,0.55)] backdrop-blur-sm"
-        {...fadeUp}
-      >
-        <div className="mb-4 inline-flex rounded-xl border border-accent/25 bg-accent/10 p-2.5 text-accent shadow-[0_0_28px_rgba(62,232,181,0.12)]">
-          <Users className="h-6 w-6" strokeWidth={2} aria-hidden />
-        </div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-ink">Join your crew</h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted">
-          Enter the shared invite code once. Delmaine and Hannah each use their own login — data stays
-          in one place.
-        </p>
-      </motion.header>
-
-      <motion.form
-        onSubmit={(e) => void submit(e)}
-        className="relative z-10 flex flex-col gap-5"
-        {...formBlock}
-      >
-        <motion.div
-          className="rounded-2xl border border-white/10 bg-surface-high/85 p-5 shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_16px_40px_-20px_rgba(0,0,0,0.45)] backdrop-blur-sm"
-          {...(reduceMotion
-            ? {}
-            : {
-                initial: { opacity: 0, y: 12 },
-                animate: { opacity: 1, y: 0 },
-                transition: { ...spring, delay: 0.1 },
-              })}
-        >
-          <span className="mb-3 block text-xs font-medium uppercase tracking-wider text-muted">
-            You are
-          </span>
-          <div className="flex gap-3">
-            {NAMES.map((n, i) => (
-              <motion.button
-                key={n}
-                type="button"
-                layout={reduceMotion ? false : true}
-                onClick={() => setName(n)}
-                transition={spring}
-                animate={{
-                  scale: name === n ? 1.03 : 1,
-                }}
-                whileHover={reduceMotion ? undefined : { scale: name === n ? 1.04 : 1.02 }}
-                whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                {...(reduceMotion
-                  ? {}
-                  : {
-                      initial: { opacity: 0, y: 10 },
-                      animate: { opacity: 1, y: 0 },
-                      transition: { ...spring, delay: 0.12 + i * 0.05 },
-                    })}
-                className={`flex-1 rounded-2xl border py-4 font-display text-base font-semibold transition-colors ${
-                  name === n
-                    ? 'border-accent bg-accent/15 text-accent shadow-[0_0_0_1px_rgba(62,232,181,0.35),0_8px_28px_-8px_rgba(62,232,181,0.35)]'
-                    : 'border-white/10 bg-surface text-ink hover:border-accent/30 hover:bg-surface-high'
-                }`}
-              >
-                {n}
-              </motion.button>
-            ))}
+      <div className="relative z-10 flex w-full max-w-md flex-1 flex-col self-center px-5 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-12">
+        <motion.header className="mb-10 text-center" {...fadeUp}>
+          <div className="mb-4 flex justify-center text-accent">
+            <Users className="h-12 w-12" strokeWidth={1.5} aria-hidden />
           </div>
-        </motion.div>
+          <h1 className="font-display text-[1.75rem] font-extrabold leading-tight tracking-tight text-ink">
+            Join your crew
+          </h1>
+          <p className="mx-auto mt-2 max-w-[320px] text-base leading-relaxed text-muted">
+            You&apos;re entering a shared performance zone. Enter the single invite code to link both
+            profiles.
+          </p>
+        </motion.header>
 
-        <motion.label
-          className="block rounded-2xl border border-white/10 bg-surface-high/85 p-5 shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_16px_40px_-20px_rgba(0,0,0,0.45)] backdrop-blur-sm"
-          {...(reduceMotion
-            ? {}
-            : {
-                initial: { opacity: 0, y: 12 },
-                animate: { opacity: 1, y: 0 },
-                transition: { ...spring, delay: 0.16 },
-              })}
+        <motion.form
+          onSubmit={(e) => void submit(e)}
+          className="flex min-h-0 flex-1 flex-col"
+          {...formBlock}
         >
-          <span className="mb-3 block text-xs font-medium uppercase tracking-wider text-muted">
-            Invite code
-          </span>
-          <motion.input
-            type="text"
-            autoComplete="off"
-            required
-            value={code}
-            onChange={(ev) => setCode(ev.target.value)}
-            whileFocus={
-              reduceMotion
-                ? undefined
-                : {
-                    scale: 1.02,
-                    boxShadow:
-                      '0 0 0 3px rgba(62, 232, 181, 0.35), 0 12px 36px -14px rgba(62, 232, 181, 0.22)',
-                  }
-            }
-            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-            className="w-full origin-center rounded-2xl border border-white/10 bg-surface px-4 py-4 font-mono text-lg tracking-wide text-ink outline-none ring-accent/20 focus:border-accent/40"
-            placeholder="e.g. DH-SHARED-2026"
-          />
-        </motion.label>
+          <motion.section
+            className="mb-8"
+            {...(reduceMotion
+              ? {}
+              : {
+                  initial: { opacity: 0, y: 12 },
+                  animate: { opacity: 1, y: 0 },
+                  transition: { ...spring, delay: 0.1 },
+                })}
+          >
+            <h2 className="mb-3 text-center font-mono text-xs font-medium uppercase tracking-[0.2em] text-muted">
+              Select your profile
+            </h2>
+            <div className="grid grid-cols-2 gap-3">
+              {NAMES.map((n, i) => {
+                const selected = name === n;
+                return (
+                  <motion.button
+                    key={n}
+                    type="button"
+                    layout={reduceMotion ? false : true}
+                    onClick={() => setName(n)}
+                    transition={spring}
+                    whileHover={reduceMotion ? undefined : { scale: selected ? 1.02 : 1.02 }}
+                    whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                    {...(reduceMotion
+                      ? {}
+                      : {
+                          initial: { opacity: 0, y: 10 },
+                          animate: { opacity: 1, y: 0 },
+                          transition: { ...spring, delay: 0.12 + i * 0.05 },
+                        })}
+                    className={`relative overflow-hidden rounded-xl border p-5 backdrop-blur-xl transition-opacity ${
+                      selected
+                        ? 'border-accent bg-white/[0.06] shadow-[0_0_24px_rgba(62,232,181,0.12)]'
+                        : 'border-white/[0.08] bg-white/[0.04] opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    {selected ? (
+                      <span
+                        className="pointer-events-none absolute inset-0 bg-accent/[0.06]"
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span
+                      className={`relative z-10 block text-center font-display text-xl font-bold tracking-tight text-ink`}
+                    >
+                      {n}
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </motion.section>
 
-        <AnimatePresence initial={false}>
-          {error ? (
-            <motion.div
-              key={error}
-              role="alert"
-              initial={reduceMotion ? false : { opacity: 0, y: -10, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={reduceMotion ? undefined : { opacity: 0, y: -6, scale: 0.98 }}
-              transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 30 }}
-              className="rounded-2xl border border-red-500/30 bg-red-950/50 px-4 py-3 text-sm text-red-100 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)]"
+          <motion.section
+            className="mb-auto flex flex-1 flex-col"
+            {...(reduceMotion
+              ? {}
+              : {
+                  initial: { opacity: 0, y: 12 },
+                  animate: { opacity: 1, y: 0 },
+                  transition: { ...spring, delay: 0.14 },
+                })}
+          >
+            <label
+              htmlFor="invite-code"
+              className="mb-3 block text-center font-mono text-xs font-medium uppercase tracking-[0.2em] text-muted"
             >
-              {error}
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+              Invite code
+            </label>
+            <div className="group relative">
+              <motion.input
+                id="invite-code"
+                type="text"
+                autoComplete="off"
+                required
+                value={code}
+                onChange={(ev) => setCode(ev.target.value)}
+                transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                className="relative z-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.04] py-4 text-center font-mono text-2xl font-bold uppercase tracking-[0.22em] text-accent outline-none backdrop-blur-xl placeholder:text-muted/30 focus:border-accent focus:ring-1 focus:ring-accent"
+                placeholder="XXXX-XXXX"
+              />
+              <div
+                className="pointer-events-none absolute inset-0 rounded-xl shadow-none transition-shadow duration-300 group-focus-within:shadow-[0_0_30px_rgba(62,232,181,0.15)]"
+                aria-hidden
+              />
+            </div>
+          </motion.section>
 
-        <motion.button
-          type="submit"
-          disabled={busy}
-          whileHover={reduceMotion || busy ? undefined : { scale: 1.01 }}
-          whileTap={reduceMotion || busy ? undefined : { scale: 0.99 }}
-          transition={spring}
-          {...(reduceMotion
-            ? {}
-            : {
-                initial: { opacity: 0, y: 10 },
-                animate: { opacity: 1, y: 0 },
-                transition: { ...spring, delay: 0.2 },
-              })}
-          className="rounded-2xl bg-accent py-4 font-display text-lg font-bold text-surface shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_12px_32px_-8px_rgba(62,232,181,0.45)] transition-opacity hover:opacity-95 disabled:opacity-50"
-        >
-          {busy ? 'Joining…' : 'Join shared log'}
-        </motion.button>
-      </motion.form>
+          <div className="mt-10 flex flex-col gap-3">
+            <div
+              className="flex min-h-[1.5rem] w-full flex-col items-center justify-center text-center"
+              aria-live="polite"
+            >
+              <AnimatePresence initial={false}>
+                {error ? (
+                  <motion.div
+                    key={error}
+                    role="alert"
+                    initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.99 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={reduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.99 }}
+                    transition={
+                      reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 30 }
+                    }
+                    className="rounded-lg border border-red-500/35 bg-red-950/55 px-3 py-2 font-mono text-xs tracking-wide text-red-100 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.55)]"
+                  >
+                    {error}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </div>
+
+            <motion.button
+              type="submit"
+              disabled={busy}
+              whileHover={reduceMotion || busy ? undefined : { scale: 1.01 }}
+              whileTap={reduceMotion || busy ? undefined : { scale: 0.99 }}
+              transition={spring}
+              {...(reduceMotion
+                ? {}
+                : {
+                    initial: { opacity: 0, y: 10 },
+                    animate: { opacity: 1, y: 0 },
+                    transition: { ...spring, delay: 0.18 },
+                  })}
+              className="w-full rounded-xl bg-accent py-4 font-display text-xl font-bold text-surface shadow-[0_0_40px_rgba(62,232,181,0.15)] transition-[opacity,box-shadow] hover:shadow-[0_0_52px_rgba(62,232,181,0.22)] disabled:opacity-50"
+            >
+              {busy ? 'Joining…' : 'Join shared log'}
+            </motion.button>
+          </div>
+        </motion.form>
+      </div>
     </div>
   );
 }

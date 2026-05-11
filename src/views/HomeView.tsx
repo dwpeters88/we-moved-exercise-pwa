@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LogOut } from 'lucide-react';
-import { AnimatePresence, LayoutGroup, MotionConfig, motion } from 'framer-motion';
+import {
+  Activity,
+  Bike,
+  CalendarDays,
+  Dumbbell,
+  Flame,
+  LogOut,
+  Settings,
+  User,
+  type LucideIcon,
+} from 'lucide-react';
+import { LayoutGroup, MotionConfig, motion } from 'framer-motion';
 import { useRpgEnv } from '../lib/rpg';
+import { useToast } from '../lib/toast';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import SettingsSheet from '../components/SettingsSheet';
 import { formatShortDate, localDayKey } from '../lib/date';
 import type { BuddyCompletion, BuddyMember } from '../lib/types';
 
 type Props = {
   crewId: string;
   userId: string;
+  appVersion: string;
   onSignOut: () => void;
 };
 
@@ -31,8 +45,18 @@ const listItem = {
   },
 };
 
-export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Element {
+const glassCard =
+  'rounded-[1.25rem] border border-white/[0.12] border-t-white/[0.15] border-b-white/[0.05] bg-white/10 shadow-[0_24px_48px_-28px_rgba(15,20,26,0.85)] backdrop-blur-xl';
+
+const heroGlowChecked =
+  'border-accent/50 bg-accent/20 shadow-[0_0_28px_rgba(62,232,181,0.18),0_24px_48px_-28px_rgba(15,20,26,0.85)]';
+
+const listIcons: LucideIcon[] = [Activity, Flame, Dumbbell, Bike];
+
+export default function HomeView({ crewId, userId, appVersion, onSignOut }: Props): JSX.Element {
   const { supabase } = useRpgEnv();
+  const { pushToast } = useToast();
+  const scrollElRef = useRef<HTMLDivElement>(null);
   const todayKey = localDayKey();
   const [members, setMembers] = useState<BuddyMember[]>([]);
   const [completions, setCompletions] = useState<BuddyCompletion[]>([]);
@@ -41,6 +65,7 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
   const [toggleBusy, setToggleBusy] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -138,6 +163,15 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
     };
   }, [crewId, reload, supabase]);
 
+  const ptr = usePullToRefresh({
+    scrollElRef,
+    disabled: toggleBusy,
+    onRefresh: async () => {
+      setLoading(true);
+      await reload();
+    },
+  });
+
   async function toggleToday(): Promise<void> {
     if (toggleBusy) return;
     setToggleBusy(true);
@@ -147,12 +181,15 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
       if (myTodayId) {
         const { error } = await supabase.from('exercise_buddy_completion').delete().eq('id', myTodayId);
         if (error) {
-          setActionError(error.message || 'Could not undo check-in.');
+          const msg = error.message || 'Could not undo check-in.';
+          setActionError(msg);
+          pushToast({ variant: 'error', message: msg });
           return;
         }
         setMyTodayId(null);
         if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(12);
         await reload();
+        pushToast({ variant: 'success', message: 'Check-in removed.' });
       } else {
         const { data, error } = await supabase
           .from('exercise_buddy_completion')
@@ -168,17 +205,18 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
             error.code === '23505' ||
             error.message.toLowerCase().includes('duplicate') ||
             error.message.toLowerCase().includes('unique');
-          setActionError(
-            dup
-              ? 'You already logged today — pull to refresh if this looks wrong.'
-              : error.message || 'Could not save check-in.',
-          );
+          const msg = dup
+            ? 'You already logged today — pull to refresh if this looks wrong.'
+            : error.message || 'Could not save check-in.';
+          setActionError(msg);
+          pushToast({ variant: 'error', message: msg });
           return;
         }
         if (data?.id) {
           setMyTodayId(data.id);
           if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20);
           await reload();
+          pushToast({ variant: 'success', message: 'Logged today — great work!' });
         }
       }
     } finally {
@@ -188,50 +226,78 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
 
   const checked = Boolean(myTodayId ?? myTodayRow);
 
+  const fullDate = new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
   return (
     <MotionConfig reducedMotion="user">
       <div
-        className="flex min-h-dvh flex-col pb-[max(1.75rem,env(safe-area-inset-bottom))]"
-        style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
+        className="flex min-h-dvh flex-col overflow-hidden bg-[#0f141a] text-[#dee3eb] pb-[max(1.75rem,env(safe-area-inset-bottom))]"
+        style={{ paddingTop: 'max(0px, env(safe-area-inset-top))' }}
       >
         <motion.header
-          className="relative overflow-hidden px-5 pb-8"
-          initial={{ opacity: 0, y: -12 }}
+          className="sticky top-0 z-50 flex h-16 w-full shrink-0 items-center justify-between border-b border-white/10 bg-[#0f141a]/60 px-5 shadow-sm backdrop-blur-xl"
+          initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springLayout}
         >
-          <div
-            className="pointer-events-none absolute -right-16 -top-24 h-56 w-56 rounded-full bg-accent/15 blur-3xl"
-            aria-hidden
-          />
-          <div className="relative flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <CalendarDays className="h-6 w-6 shrink-0 text-accent" aria-hidden />
             <div className="min-w-0">
-              <p className="font-display text-[0.65rem] font-semibold uppercase tracking-[0.22em] text-accent">
-                Today
+              <h1 className="font-display text-lg font-bold leading-tight tracking-tight text-ink">Today</h1>
+              <p className="truncate text-xs font-semibold uppercase tracking-[0.12em] text-[#bccac1]">
+                {fullDate}
               </p>
-              <h1 className="mt-2 font-display text-3xl font-bold leading-tight tracking-tight text-ink sm:text-[2rem]">
-                {new Date().toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </h1>
             </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <motion.button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              whileTap={{ scale: 0.94 }}
+              transition={springTap}
+              className="rounded-full p-2.5 text-[#bccac1] transition-colors hover:bg-white/5 hover:text-ink"
+              aria-label="Settings"
+            >
+              <Settings className="h-5 w-5" aria-hidden />
+            </motion.button>
             <motion.button
               type="button"
               onClick={onSignOut}
-              whileTap={{ scale: 0.96 }}
+              whileTap={{ scale: 0.94 }}
               transition={springTap}
-              className="flex shrink-0 items-center gap-2 rounded-xl border border-white/10 bg-surface-high/40 px-3 py-2 text-sm text-muted backdrop-blur-sm hover:bg-white/5"
+              className="rounded-full p-2.5 text-[#bccac1] transition-colors hover:bg-white/5 hover:text-ink"
               aria-label="Sign out"
             >
-              <LogOut className="h-4 w-4" aria-hidden />
-              Out
+              <LogOut className="h-5 w-5" aria-hidden />
             </motion.button>
           </div>
         </motion.header>
 
-        <main className="flex flex-1 flex-col gap-5 px-5">
+        <div
+          ref={scrollElRef}
+          className="relative flex min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain scroll-smooth"
+          onTouchStart={ptr.handlers.onTouchStart}
+          onTouchMove={ptr.handlers.onTouchMove}
+          onTouchEnd={ptr.handlers.onTouchEnd}
+        >
+          {(ptr.pullPx > 0 || ptr.isRefreshing) && (
+            <div
+              className="pointer-events-none sticky top-0 z-30 flex justify-center py-3"
+              aria-hidden
+            >
+              <div
+                className={`flex h-9 w-9 items-center justify-center rounded-full border-2 border-accent ${
+                  ptr.isRefreshing ? 'animate-spin border-t-transparent' : 'border-dashed opacity-80'
+                }`}
+              />
+            </div>
+          )}
+
+          <div className="flex flex-col gap-6 px-5 py-6">
           {loadError ? (
             <div className="rounded-2xl border border-amber-500/30 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
               <p>{loadError}</p>
@@ -258,68 +324,64 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
             <motion.section
               layout
               transition={springLayout}
-              className="relative overflow-hidden rounded-[1.75rem] border border-white/12 bg-gradient-to-br from-accent/12 via-surface-high to-surface p-1 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.55)]"
+              className="relative overflow-hidden"
             >
-              <div className="rounded-[1.6rem] border border-white/5 bg-surface-high/30 p-5 sm:p-6">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">Your check-in</p>
-                  <motion.span
-                    layout
-                    className="rounded-full bg-white/5 px-2.5 py-0.5 text-[0.65rem] font-medium tabular-nums text-muted"
-                  >
-                    {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                  </motion.span>
+              <motion.button
+                type="button"
+                layout
+                disabled={loading || toggleBusy || Boolean(loadError)}
+                onClick={() => void toggleToday()}
+                aria-pressed={checked}
+                aria-label={checked ? 'Exercise logged today. Tap to undo.' : 'Log exercise for today.'}
+                whileTap={
+                  loading || toggleBusy || Boolean(loadError) ? undefined : { scale: 0.985 }
+                }
+                transition={springTap}
+                className={`${glassCard} relative flex w-full flex-col items-center gap-5 px-6 py-8 text-center transition-colors disabled:opacity-50 ${
+                  checked ? heroGlowChecked : ''
+                }`}
+              >
+                <div
+                  className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-accent/25 blur-3xl"
+                  aria-hidden
+                />
+                <div className="relative z-10 flex flex-col items-center gap-1">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#bccac1]">We Moved</p>
+                  <h2 className="font-display text-2xl font-extrabold leading-tight tracking-tight text-ink sm:text-[1.65rem]">
+                    I exercised today
+                  </h2>
+                  <p className="mt-1 max-w-[20rem] text-sm leading-snug text-[#bccac1]">
+                    {myTodayRow
+                      ? `Logged ${new Date(myTodayRow.completed_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} — tap to undo`
+                      : 'Tap when you are done — Delmaine and Hannah share this log.'}
+                  </p>
                 </div>
-                <motion.button
-                  type="button"
-                  layout
-                  disabled={loading || toggleBusy || Boolean(loadError)}
-                  onClick={() => void toggleToday()}
-                  aria-pressed={checked}
-                  aria-label={checked ? 'Exercise logged today. Tap to undo.' : 'Log exercise for today.'}
-                  whileTap={
-                    loading || toggleBusy || Boolean(loadError)
-                      ? undefined
-                      : { scale: 0.97 }
-                  }
-                  transition={springTap}
-                  className="mt-5 flex w-full items-center gap-4 rounded-2xl border border-white/12 bg-track/90 px-4 py-5 text-left shadow-inner backdrop-blur-sm transition-colors hover:bg-track disabled:opacity-50"
+                <div
+                  className="relative z-10 h-10 w-20 shrink-0 rounded-full bg-[#252a31] shadow-inner ring-1 ring-black/20"
+                  aria-hidden
                 >
                   <motion.span
                     layout
-                    transition={springLayout}
-                    className={`relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-2 text-2xl font-bold ${
-                      checked
-                        ? 'border-accent bg-accent text-surface shadow-[0_0_20px_-6px_rgba(0,0,0,0.35)]'
-                        : 'border-muted/45 bg-surface-high/50 text-muted'
-                    }`}
-                    aria-hidden
+                    transition={springTap}
+                    className="absolute top-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white shadow-sm"
+                    initial={false}
+                    animate={{ left: checked ? 44 : 4 }}
                   >
-                    <AnimatePresence mode="popLayout" initial={false}>
-                      {checked ? (
-                        <motion.span
-                          key="tick"
-                          initial={{ scale: 0.5, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          exit={{ scale: 0.6, opacity: 0 }}
-                          transition={springTap}
-                          className="absolute inset-0 flex items-center justify-center"
-                        >
-                          ✓
-                        </motion.span>
-                      ) : null}
-                    </AnimatePresence>
+                    {checked ? (
+                      <span className="text-sm font-bold text-[#003827]" aria-hidden>
+                        ✓
+                      </span>
+                    ) : null}
                   </motion.span>
-                  <motion.div layout="position" className="min-w-0 flex-1" transition={springLayout}>
-                    <p className="font-display text-xl font-bold text-ink sm:text-[1.35rem]">I exercised today</p>
-                    <p className="mt-1.5 text-sm leading-snug text-muted">
-                      {myTodayRow
-                        ? `Logged ${new Date(myTodayRow.completed_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} — tap to undo`
-                        : 'Tap when you are done — Delmaine and Hannah share this log.'}
-                    </p>
-                  </motion.div>
-                </motion.button>
-              </div>
+                  <motion.span
+                    layout
+                    className={`pointer-events-none absolute inset-0 rounded-full ${
+                      checked ? 'bg-accent/35' : 'bg-transparent'
+                    }`}
+                    transition={springLayout}
+                  />
+                </div>
+              </motion.button>
             </motion.section>
           </LayoutGroup>
 
@@ -328,38 +390,48 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...springLayout, delay: 0.05 }}
-            className="rounded-3xl border border-white/10 bg-gradient-to-br from-partner/8 to-surface-high/70 p-5 shadow-lg"
+            className="flex flex-col gap-2"
           >
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted">Partner</p>
-            <div className="mt-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="font-display text-xl font-semibold text-partner">
+            <h3 className="px-0.5 font-display text-lg font-bold text-ink">Partner Status</h3>
+            <div className={`${glassCard} flex items-center justify-between gap-4 p-4`}>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#30353c] text-partner ring-1 ring-white/10">
+                  <User className="h-6 w-6" aria-hidden />
+                </div>
+                <p className="truncate font-display text-base font-semibold text-partner">
                   {partner?.display_name ?? (soloInCrew ? 'Invite them' : 'Partner')}
                 </p>
               </div>
               <div className="shrink-0 text-right">
                 {soloInCrew ? (
-                  <p className="max-w-[11rem] text-sm text-muted">
+                  <p className="max-w-[11rem] text-sm text-[#bccac1]">
                     Share the invite code so they can join this log.
                   </p>
                 ) : partnerDoneToday ? (
-                  <>
-                    <p className="text-sm font-medium text-accent">Done today</p>
-                    <p className="text-xs text-muted">{partnerTimeToday ?? ''}</p>
-                  </>
+                  <div className="inline-flex flex-col items-end gap-0.5">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 px-3 py-1 text-xs font-semibold text-accent ring-1 ring-accent/30">
+                      <span className="text-[0.65rem]" aria-hidden>
+                        ●
+                      </span>
+                      Done today
+                    </span>
+                    {partnerTimeToday ? (
+                      <span className="text-xs tabular-nums text-[#bccac1]">{partnerTimeToday}</span>
+                    ) : null}
+                  </div>
                 ) : (
-                  <p className="text-sm text-muted">Not yet today</p>
+                  <span className="rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-[#bccac1] ring-1 ring-white/10">
+                    Not yet
+                  </span>
                 )}
               </div>
             </div>
           </motion.section>
 
-          <section>
-            <h2 className="mb-3 px-1 font-display text-sm font-semibold uppercase tracking-wider text-muted">
-              Recent
-            </h2>
+          <section className="flex flex-col gap-2">
+            <h3 className="px-0.5 font-display text-lg font-bold text-ink">Recent Activity</h3>
             <motion.ul
-              className="flex flex-col gap-2.5"
+              className={`${glassCard} flex flex-col overflow-hidden divide-y divide-white/5`}
               variants={listContainer}
               initial="hidden"
               animate="show"
@@ -367,44 +439,67 @@ export default function HomeView({ crewId, userId, onSignOut }: Props): JSX.Elem
               {loading ? (
                 <motion.li
                   variants={listItem}
-                  className="rounded-2xl bg-surface-high/40 px-4 py-6 text-center text-sm text-muted"
+                  className="px-4 py-8 text-center text-sm text-[#bccac1]"
                 >
                   Loading…
                 </motion.li>
               ) : completions.length === 0 ? (
                 <motion.li
                   variants={listItem}
-                  className="rounded-2xl border border-dashed border-white/15 px-4 py-8 text-center text-sm text-muted"
+                  className="px-4 py-10 text-center text-sm text-[#bccac1]"
                 >
                   No entries yet — be the first to check in.
                 </motion.li>
               ) : (
-                completions.map((c) => (
-                  <motion.li
-                    key={c.id}
-                    layout
-                    variants={listItem}
-                    transition={springLayout}
-                    className="flex items-center justify-between rounded-2xl border border-white/8 bg-surface-high/45 px-4 py-3.5 shadow-sm"
-                  >
-                    <div>
-                      <p className="font-medium text-ink">{nameByUser.get(c.user_id) ?? 'Someone'}</p>
-                      <p className="text-xs text-muted">{formatShortDate(c.workout_day)}</p>
-                    </div>
-                    <time className="text-sm tabular-nums text-muted" dateTime={c.completed_at}>
-                      {new Date(c.completed_at).toLocaleString(undefined, {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </time>
-                  </motion.li>
-                ))
+                completions.map((c, i) => {
+                  const RowIcon = listIcons[i % listIcons.length] ?? Activity;
+                  const timeOnly = new Date(c.completed_at).toLocaleTimeString(undefined, {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  });
+                  return (
+                    <motion.li
+                      key={c.id}
+                      layout
+                      variants={listItem}
+                      transition={springLayout}
+                      className="flex items-center justify-between gap-3 px-4 py-4 transition-colors hover:bg-white/[0.04] active:bg-white/[0.07]"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent ring-1 ring-accent/20">
+                          <RowIcon className="h-5 w-5" aria-hidden />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-display text-sm font-semibold text-ink">
+                            {nameByUser.get(c.user_id) ?? 'Someone'}
+                          </p>
+                          <p className="mt-0.5 text-xs text-[#bccac1]">{formatShortDate(c.workout_day)}</p>
+                        </div>
+                      </div>
+                      <time
+                        className="shrink-0 text-sm tabular-nums text-[#bccac1]"
+                        dateTime={c.completed_at}
+                      >
+                        {timeOnly}
+                      </time>
+                    </motion.li>
+                  );
+                })
               )}
             </motion.ul>
           </section>
-        </main>
+        </div>
+        </div>
+
+        <SettingsSheet
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          appVersion={appVersion}
+          onSignOut={() => {
+            setSettingsOpen(false);
+            onSignOut();
+          }}
+        />
       </div>
     </MotionConfig>
   );
